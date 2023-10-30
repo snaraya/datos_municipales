@@ -1,0 +1,98 @@
+---
+title: "Procesamiento de datos elecciones municipales 2021"
+output: html_document
+date: "2023-10-30"
+---
+
+
+#Limpieza de las bases de datos.
+
+Paquetes a ocupar:
+
+```{r warning=F}
+library(tidyverse)
+library(readxl)
+```
+
+## Alcaldes 2021
+
+Abrimos las bases de datos:
+
+1. Cargamos las direcciones de los archivos en excel.
+2. Pegamos al nombre de los archivos el directorio donde se encuentran dentro del proyecto.
+3. Leemos los archivos, estos quedarán guardados como una *lista*.
+4. Unimos las bases de datos que comparten los mismos nombres de columnas.
+
+```{r}
+archivos <- list.files(pattern='*.xlsx', path = 'input/Definitivos Alcalde 2021/')
+archivos <- paste0('input/Definitivos Alcalde 2021/', archivos)
+lista_archivos <- lapply(archivos, read_excel)
+df <- bind_rows(lista_archivos, .id = "id")
+
+library(rio)
+
+alcaldes_07 <- import_list("input/Definitivos Alcalde 2021/07_Resultados_Mesa_Alcaldes_TER.xlsx", 
+                         setclass = "tbl", rbind = TRUE)
+alcaldes_05 <- import_list("input/Definitivos Alcalde 2021/05_Resultados_Mesa_Alcaldes_TER.xlsx", 
+                         setclass = "tbl", rbind = TRUE)
+alcaldes_08 <- import_list("input/Definitivos Alcalde 2021/08_Resultados_Mesa_Alcaldes_TER.xlsx", 
+                         setclass = "tbl", rbind = TRUE)
+alcaldes_09 <- import_list("input/Definitivos Alcalde 2021/09_Resultados_Mesa_Alcaldes_TER.xlsx", 
+                         setclass = "tbl", rbind = TRUE)
+alcaldes_06 <- import_list("input/Definitivos Alcalde 2021/06_Resultados_Mesa_Alcaldes_TER.xlsx", 
+                         setclass = "tbl", rbind = TRUE)
+alcaldes_10 <- import_list("input/Definitivos Alcalde 2021/10_Resultados_Mesa_Alcaldes_TER.xlsx", 
+                         setclass = "tbl", rbind = TRUE)
+
+df_planillas <- bind_rows(alcaldes_05, alcaldes_06, alcaldes_07, alcaldes_08, alcaldes_09, alcaldes_10)
+
+comunas <- df_planillas %>% 
+  select(Comuna) %>% 
+  distinct() %>% 
+  pull
+
+df <- df %>% 
+  filter(!Comuna %in% comunas)
+
+df <- bind_rows(df, df_planillas)
+
+```
+
+Revisamos la base de datos resultante y limpiamos los nombres de las columnas:
+
+```{r}
+df <- df %>% janitor::clean_names()
+
+str(df)
+
+colnames(df)
+```
+
+Agrupamos por región y comuna, sumamos los votos por candidato:
+
+```{r}
+df <- df %>% 
+  janitor::clean_names() %>% 
+  select(region_no, region, provincia, comuna, lista, pacto, partido, candidato, votos_ter, votos) %>% 
+  mutate(votos = coalesce(votos, votos_ter)) %>% 
+  select(-votos_ter) %>% 
+  group_by(comuna, candidato) %>% 
+  mutate(votos_candidatos = sum(votos, na.rm = T)) %>% 
+  select(-votos) %>% 
+  distinct()
+```
+
+Hacemos un subset a los datos para revisar:
+
+```{r}
+df %>% 
+  filter(comuna == 'TALTAL')
+```
+
+Guardamos la base de datos:
+
+```{r}
+write_rds(df, 'output/231029 - BBDD Alcaldes 2021.rds')
+writexl::write_xlsx(df, 'output/231029 - BBDD Alcaldes 2021.xlsx')
+```
+
