@@ -278,32 +278,67 @@ df_completa_alcaldes_genero <- df_completa_alcaldes_genero %>%
 Seleccionamos las variables de interés:
 
 ```{r}
-df_personas <- df_completa_alcaldes_genero %>% 
+df_primera_mayoria <- df_completa_alcaldes_genero %>% 
   mutate(
   puestos_votacion = case_when(
     electo == "ALCALDE" ~ 'primera_mayoria',
     rank_votos == 1 & fecha == 2021 ~ 'primera_mayoria',
     rank_votos == 2 ~ 'segunda_mayoria',
     T ~ "otro")) %>% 
-  pivot_wider(id_cols = c(fecha, tipo_eleccion, comuna, sexo), 
-              names_from = puestos_votacion, values_from = candidato, values_fill = NA)
+  filter(puestos_votacion == 'primera_mayoria')
 
-# %>% 
-#   pivot_wider(names_from = 'puestos_votacion', values_from = 'votos') %>% 
-#   arrange(comuna, fecha, rank_votos) %>% 
-#   fill(segunda_votacion, .direction = 'up') %>% 
-#   filter(rank_votos == 1)
+df_segunda_mayoria <- df_completa_alcaldes_genero %>% 
+  mutate(
+  puestos_votacion = case_when(
+    electo == "ALCALDE" ~ 'primera_mayoria',
+    rank_votos == 1 & fecha == 2021 ~ 'primera_mayoria',
+    rank_votos == 2 ~ 'segunda_mayoria',
+    T ~ "otro")) %>% 
+  filter(puestos_votacion != 'primera_mayoria')
+```
+
+```{r}
+colnames(df_primera_mayoria)
+
+df_primera_mayoria <- df_primera_mayoria %>% 
+  rename_at(vars(candidato, sexo, pacto, pacto_nombre, partido, sigla_partido, votos_candidato, coalicion), 
+            ~paste0(., "_pm")) %>% 
+  select(-puestos_votacion, -rank_votos)
+
+df_segunda_mayoria <- df_segunda_mayoria %>% 
+  rename_at(vars(candidato, sexo, pacto, pacto_nombre, partido, sigla_partido, votos_candidato, coalicion), 
+            ~paste0(., "_sm"))
+
+df_segunda_mayoria <- df_segunda_mayoria %>% 
+  group_by(fecha, comuna) %>% 
+  unique() %>% 
+  mutate(mas_de_uno = if_else(length(duplicated(comuna))==2, TRUE, FALSE)) %>% 
+  group_by(fecha, comuna) %>% 
+  slice_max(votos_candidato_sm) %>% 
+  select(-mas_de_uno, -puestos_votacion, -rank_votos)
+
+colnames(df_segunda_mayoria)
+```
+
+
+```{r}
+df_completa <- left_join(df_primera_mayoria, df_segunda_mayoria, by = join_by(fecha, comuna))
+
+df_completa <- df_completa %>% 
+  select(-ends_with(".y")) %>% 
+  rename_at(vars(ends_with(".x")), ~str_remove(., ".x"))
 ```
 
 Calculamos el % a las columnas de `primera_votacion` y `segunda_votacion`, además de crear la `dummy_genero` y `brecha_victoria`.
 
 ```{r}
-df_elecciones_c <- df_elecciones_b %>% 
+df_completa <- df_completa %>% 
   rowwise() %>% 
-  mutate(primera_votacion = primera_votacion/validamente_emitidos,
-         segunda_votacion = segunda_votacion/validamente_emitidos,
-         sexo = if_else(sexo == "HOMBRE", 0, 1),
-         brecha_victoria = primera_votacion-segunda_votacion)
+  mutate(votos_candidato_pm_p = votos_candidato_pm/votos_validos,
+         votos_candidato_sm_p = votos_candidato_sm/votos_validos,
+         brecha_victoria = votos_candidato_pm - votos_candidato_sm,
+         brecha_victoria_p = votos_candidato_pm_p - votos_candidato_sm_p) %>% 
+  select(-electo)
 ```
 
 ## Coalición
@@ -311,51 +346,41 @@ df_elecciones_c <- df_elecciones_b %>%
 Ahora, haremos las variables relacionadas con la reeleccion de coalicion incumbente:
 
 ```{r}
-df_elecciones_d <- df_elecciones_c %>% 
+df_completa_incumbente <- df_completa %>% 
   group_by(comuna) %>% 
-  mutate(reeleccion_coalicion = if_else(lag(coalicion) == coalicion, 1, 0),
-         porc_coalicion_electa = case_when(
-           coalicion == "CONCERTACION"   ~ coalicion_concertacion,
-           coalicion == "ALIANZA"        ~ coalicion_alianza,
-           coalicion == "INDEPENDIENTES" ~ coalicion_independientes,
-           coalicion == "OTROS"          ~ coalicion_otros),
-         porc_coalicion_incumbente = case_when(
-           coalicion == "CONCERTACION" ~ lead(coalicion_concertacion),
-           coalicion == "ALIANZA" ~ lead(coalicion_alianza),
-           coalicion == "OTROS" ~ lead(coalicion_otros),
-           coalicion == "INDEPENDIENTES" ~ lead(coalicion_independientes)
-         )) %>% 
-  mutate_at(vars(porc_coalicion_incumbente), ~lag(., n=1)) %>% 
-  mutate(porc_cambio = porc_coalicion_incumbente - lag(porc_coalicion_electa))
-```
+  mutate(reeleccion_coalicion_alcalde = if_else(lag(coalicion_pm) == coalicion_pm, 1, 0),
+         porc_coalicion_alcalde_electa = case_when(
+           coalicion_pm == "CONCERTACION"   ~ coalicion_concertacion_p,
+           coalicion_pm == "ALIANZA"        ~ coalicion_alianza_p,
+           coalicion_pm == "INDEPENDIENTES" ~ coalicion_independientes_p,
+           coalicion_pm == "OTROS"          ~ coalicion_otros_p,
+           coalicion_pm == "FRENTE AMPLIO"          ~ coalicion_frente_amplio_p),
+         porc_coalicion_alcalde_incumbente = case_when(
+           coalicion_pm == "CONCERTACION" ~ lag(coalicion_concertacion_p),
+           coalicion_pm == "ALIANZA" ~ lag(coalicion_alianza_p),
+           coalicion_pm == "OTROS" ~ lag(coalicion_otros_p),
+           coalicion_pm == "INDEPENDIENTES" ~ lag(coalicion_independientes_p),
+           coalicion_pm == "FRENTE AMPLIO" ~ lag(coalicion_frente_amplio_p)
+         ))
 
-Agregamos la información de los gobiernos de turno:
+# Revisión por comuna
 
-```{r}
-df_elecciones_e <- df_elecciones_d %>% 
-  mutate(gobierno_nacional = case_when(
-    fecha == 2000 ~ "CONCERTACION",
-    fecha == 2004 ~ "CONCERTACION",
-    fecha == 2008 ~ "CONCERTACION",
-    fecha == 2012 ~ "ALIANZA",
-    fecha == 2016 ~ "CONCERTACION",
-    fecha == 2021 ~ "ALIANZA"
-  ),
-  alineamiento_electo = case_when(
-    gobierno_nacional == "CONCERTACION" & coalicion == "CONCERTACION" ~ 1,
-    gobierno_nacional == "ALIANZA" & coalicion == "ALIANZA" ~ 1,
-    T ~ 0
-  ),
-  alineamiento_incumbente = case_when(
-    gobierno_nacional == "CONCERTACION" & lag(coalicion) == "CONCERTACION" ~ 1,
-    gobierno_nacional == "ALIANZA" & lag(coalicion) == "ALIANZA" ~ 1,
-    T ~ 0
-  ))
+df_completa_incumbente %>% 
+  select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, porc_coalicion_alcalde_electa, 
+         porc_coalicion_alcalde_incumbente) %>% 
+  filter(comuna == "SANTIAGO") 
 
-df_elecciones_e %>% 
-  select(fecha, comuna, coalicion, gobierno_nacional, alineamiento_electo, alineamiento_incumbente) %>% 
+# Revisión de conteo
+
+df_completa_incumbente <- df_completa_incumbente %>% 
+  mutate(reeleccion_coalicion_alcalde = replace_na(reeleccion_coalicion_alcalde, value = 0)) %>% 
+  mutate(periodos_consecutivos_coalicion = hutilscpp::cumsum_reset(reeleccion_coalicion_alcalde >= 1,
+                                                                   reeleccion_coalicion_alcalde))
+
+
+df_completa_incumbente %>% 
+  select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, periodos_consecutivos_coalicion) %>% 
   filter(comuna == "SANTIAGO")
-
 ```
 
 Ahora, reeleccion por candidato:
@@ -363,15 +388,15 @@ Ahora, reeleccion por candidato:
 Primero, haremos una nueva base de datos con información del año, comuna y nombre del candidato:
 
 ```{r}
-df_candidato <- df_elecciones_e %>% 
-  select(fecha, comuna, candidato) %>% 
+df_candidato_ganador <- df_completa_incumbente %>% 
+  select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, periodos_consecutivos_coalicion) %>% 
   arrange(comuna, fecha)
 ```
 
 Guardamos la base de datos para su revisión manual:
 
 ```{r}
-writexl::write_xlsx(df_candidato, "output/221007 - Candidatos.xlsx")
+writexl::write_xlsx(df_candidato_ganador, "output/231030 - Candidatos.xlsx")
 ```
 
 ## Reeleción de candidatos
@@ -379,39 +404,66 @@ writexl::write_xlsx(df_candidato, "output/221007 - Candidatos.xlsx")
 Cargamos la base de datos con la reelección de candidatos digitada:
 
 ```{r}
-df_candidato <- readxl::read_excel("output/221116 - Candidatos_rec.xlsx")
+df_candidato <- readxl::read_excel("input/231030 - Candidatos_rec.xlsx") %>% 
+  select(1,2,3,7) %>% 
+  rename(periodos_consecutivos_alcalde = 4) %>% 
+  mutate(reeleccion_alcalde = if_else(periodos_consecutivos_alcalde != 1, 1, 0))
 ```
 
 Unimos la base de datos con la planilla de reelección:
 
 ```{r}
-df_elecciones_f <- df_elecciones_e %>% 
-  left_join(df_candidato) %>% 
-  filter(fecha >= 1995)
+df_completa_incumbente <- df_completa_incumbente %>% 
+  left_join(df_candidato, by = join_by(fecha, comuna, candidato_pm))
 
-df_elecciones_f %>% 
-  filter(is.na(partido), fecha >= 1995) %>% 
-  select(comuna, candidato)
+df_completa_incumbente <- df_completa_incumbente %>% 
+  group_by(comuna) %>% 
+  arrange(fecha, .by_group = T)
 
+df_completa_incumbente <- df_completa_incumbente %>% 
+  mutate(periodos_consecutivos_coalicion = periodos_consecutivos_coalicion + 1,
+         coalicion_municipal_incumbente = case_when(
+           coalicion_pm == "CONCERTACION" & lag(coalicion_pm == "CONCERTACION") ~ "CONCERTACIÓN",
+           coalicion_pm == "ALIANZA" & lag(coalicion_pm == "ALIANZA") ~ "ALIANZA",
+           coalicion_pm == "INDEPENDIENTES" & lag(coalicion_pm == "INDEPENDIENTES") ~ "INDEPENDIENTES",
+           coalicion_pm == "OTROS" & lag(coalicion_pm == "OTROS") ~ "OTROS",
+           coalicion_pm == "FRENTE AMPLIO" & lag(coalicion_pm == "FRENTE AMPLIO") ~ "FRENTE AMPLIOA"),
+         )
 ```
 
-Conteo de reelección y dummy de reeleccion:
+Transformamos las variables de chr a minúscula:
 
 ```{r}
-df_elecciones_rev <- df_elecciones_f %>% 
-  select(fecha, comuna, candidato, coalicion, reeleccion_coalicion, n_periodos_alcalde = reeleccion_seq) %>% 
-  mutate_at(vars(n_periodos_alcalde, reeleccion_coalicion), ~sjmisc::replace_na(.,value = 0)) %>% 
-  mutate(reeleccion_alcalde = if_else(n_periodos_alcalde >= 1, 1, 0),
-         n_periodos_coalicion = 
-         hutilscpp::cumsum_reset(reeleccion_coalicion >= 1, reeleccion_coalicion)) 
+df_completa_incumbente <- df_completa_incumbente %>% 
+  select(tipo_eleccion, cargo, comuna, candidato_pm, candidato_sm, sexo_pm, sexo_sm, pacto_nombre_pm, pacto_nombre_sm,
+         partido_pm, partido_sm, coalicion_pm, coalicion_sm, everything()) %>% 
+  mutate(across(where(is.character), 
+                \(x) stringi::stri_trans_general(str_to_lower(x), "latin-ascii"))) %>% 
+  mutate(comuna = stringi::stri_trans_general(str_to_lower(comuna), "latin-ascii"))
+
+df_completa_incumbente <- df_completa_incumbente %>% ungroup()
 ```
 
-Unimos las bases:
- 
+Agregamos la variable relativa a si el alcalde incumbente se presenta o no a la reelección:
+
 ```{r}
-df_elecciones_g <- df_elecciones_f %>% 
-  left_join(df_elecciones_rev)
+df_presentacion <- haven::read_dta("input/base_consolidada_promedios_2001_2019.dta") %>% 
+  select(municipio, cod_com, candidato, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas) %>% 
+  mutate(fecha = case_when(
+    periodo_electoral == 1 ~ 2004,
+    periodo_electoral == 2 ~ 2008,
+    periodo_electoral == 3 ~ 2012,
+    periodo_electoral == 4 ~ 2016
+  ))
 ```
+
+Unimos las bases de datos utilizando
+
+```{r}
+df_completa_incumbente_ <- df_completa_incumbente %>% 
+  left_join(df_presentacion, by = join_by(comuna == municipio, candidato_pm == candidato, fecha))
+```
+
 
 Seleccionamos algunas comunas para revisar:
 
