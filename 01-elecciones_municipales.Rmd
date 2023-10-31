@@ -354,20 +354,12 @@ df_completa_incumbente <- df_completa %>%
            coalicion_pm == "ALIANZA"        ~ coalicion_alianza_p,
            coalicion_pm == "INDEPENDIENTES" ~ coalicion_independientes_p,
            coalicion_pm == "OTROS"          ~ coalicion_otros_p,
-           coalicion_pm == "FRENTE AMPLIO"          ~ coalicion_frente_amplio_p),
-         porc_coalicion_alcalde_incumbente = case_when(
-           coalicion_pm == "CONCERTACION" ~ lag(coalicion_concertacion_p),
-           coalicion_pm == "ALIANZA" ~ lag(coalicion_alianza_p),
-           coalicion_pm == "OTROS" ~ lag(coalicion_otros_p),
-           coalicion_pm == "INDEPENDIENTES" ~ lag(coalicion_independientes_p),
-           coalicion_pm == "FRENTE AMPLIO" ~ lag(coalicion_frente_amplio_p)
-         ))
+           coalicion_pm == "FRENTE AMPLIO"          ~ coalicion_frente_amplio_p))
 
 # Revisión por comuna
 
 df_completa_incumbente %>% 
-  select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, porc_coalicion_alcalde_electa, 
-         porc_coalicion_alcalde_incumbente) %>% 
+  select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, porc_coalicion_alcalde_electa) %>% 
   filter(comuna == "SANTIAGO") 
 
 # Revisión de conteo
@@ -422,13 +414,17 @@ df_completa_incumbente <- df_completa_incumbente %>%
 
 df_completa_incumbente <- df_completa_incumbente %>% 
   mutate(periodos_consecutivos_coalicion = periodos_consecutivos_coalicion + 1,
-         coalicion_municipal_incumbente = case_when(
-           coalicion_pm == "CONCERTACION" & lag(coalicion_pm == "CONCERTACION") ~ "CONCERTACIÓN",
-           coalicion_pm == "ALIANZA" & lag(coalicion_pm == "ALIANZA") ~ "ALIANZA",
-           coalicion_pm == "INDEPENDIENTES" & lag(coalicion_pm == "INDEPENDIENTES") ~ "INDEPENDIENTES",
-           coalicion_pm == "OTROS" & lag(coalicion_pm == "OTROS") ~ "OTROS",
-           coalicion_pm == "FRENTE AMPLIO" & lag(coalicion_pm == "FRENTE AMPLIO") ~ "FRENTE AMPLIOA"),
-         )
+         coalicion_municipal_incumbente = lag(coalicion_pm), 
+         porc_coalicion_alcalde_incumbente = case_when(
+           coalicion_municipal_incumbente == "CONCERTACION" ~ coalicion_concertacion_p,
+           coalicion_municipal_incumbente == "ALIANZA" ~ coalicion_alianza_p,
+           coalicion_municipal_incumbente == "INDEPENDIENTES" ~ coalicion_independientes_p,
+           coalicion_municipal_incumbente == "OTROS" ~ coalicion_otros_p,
+           coalicion_municipal_incumbente == "FRENTE AMPLIO" ~ coalicion_frente_amplio_p
+         ))
+
+df_completa_incumbente %>% 
+  select(fecha, comuna, candidato_pm, coalicion_pm, coalicion_municipal_incumbente, porc_coalicion_alcalde_incumbente)
 ```
 
 Transformamos las variables de chr a minúscula:
@@ -460,142 +456,101 @@ df_presentacion <- haven::read_dta("input/base_consolidada_promedios_2001_2019.d
 Unimos las bases de datos utilizando
 
 ```{r}
-df_completa_incumbente_ <- df_completa_incumbente %>% 
+
+df_completa_incumbente <- df_completa_incumbente %>% 
+  filter(!comuna %in% c("cabo de hornos","cabo de hornos y antartica", "cabo de hornos(ex-navarino)", "antartica")) %>% 
+  mutate(comuna = str_replace_all(comuna, 
+                                  c("llay-llay" = "llaillay","treguaco" = "trehuaco", "o'higgins" = "o´higgins",
+                                    "marchigue" = "marchihue", "aisen" = "aysen")))
+
+df_electoral_municipal <- df_completa_incumbente %>% 
   left_join(df_presentacion, by = join_by(comuna == municipio, candidato_pm == candidato, fecha))
-```
 
-
-Seleccionamos algunas comunas para revisar:
-
-```{r}
-set.seed(1234)
-
-df_elecciones_g <- df_elecciones_g %>% 
-    filter(!comuna %in% 
-           c("ANTARTICA","CABO DE HORNOS","CABO DE HORNOS Y ANTARTICA","CABO DE 
-             HORNOS(EX-NAVARINO)")) %>% 
-  arrange(comuna, fecha)
-
-df_elecciones_g %>% 
+df_electoral_municipal <- df_electoral_municipal %>% 
   group_by(comuna) %>% 
-  writexl::write_xlsx("output/221019 - Revisión.xlsx")
+  fill(., cod_com, .direction = "downup") %>% 
+  mutate(periodo_electoral = seq_along(periodo_electoral))
+
 ```
 
-Ordenamos la base de datos:
+Revisión de variables y ubicación:
 
 ```{r}
-df_final <- df_elecciones_g %>% 
-  select(fecha, comuna, candidato, sexo, partido, lista, coalicion,
-         votos_en_blanco, votos_nulos, total_votacion, validamente_emitidos,
-         coalicion_concertacion, coalicion_alianza, coalicion_independientes, 
-         coalicion_otros, coalicion_frente_amplio, primera_votacion, segunda_votacion,
-         brecha_victoria, porc_coalicion_electa, porc_coalicion_incumbente, porc_cambio,
-         reeleccion_coalicion, reeleccion_alcalde, n_periodos_coalicion, n_periodos_alcalde, 
-         gobierno_nacional, alineamiento_electo, alineamiento_incumbente)
+colnames(df_electoral_municipal)
 ```
 
-
-
-```{r}
-df_final <- df_final %>% 
-  mutate(partido = str_squish(str_remove(partido, "PARTIDO")))
-
-df_final <- df_final %>% 
-  mutate(partido = str_replace(partido, "PROGRESISTA DE CHILE","PROGRESISTA"),
-         partido = str_replace(partido, "RADICAL DE CHILE","RADICAL SOCIALDEMOCRATA"))
-```
-
-Agregamos información y cambiamos nombres:
-
-```{r}
-df_cambios <- df_final %>% 
-  rename(alcalde_electo = candidato,
-         sexo_electo = sexo,
-         partido_electo = partido,
-         coalicion_electo = coalicion,
-         primera_mayoria = primera_votacion,
-         segunda_mayoria = segunda_votacion) %>% 
-  mutate(incumbente = lag(alcalde_electo),
-         sexo_incumbente = lag(sexo_electo),
-         partido_incumbente = lag(partido_electo),
-         coalicion_incumbente = lag(coalicion_electo))
-
-df_cambios %>% 
-  ungroup() %>% 
-  frq(partido_electo)
-
-df_cambios_b <- df_cambios %>% 
-  rowwise() %>% 
-    mutate(partido_presidente = case_when(
-    fecha == 2000 ~ "POR LA DEMOCRACIA",
-    fecha == 2004 ~ "POR LA DEMOCRACIA",
-    fecha == 2008 ~ "SOCIALISTA DE CHILE",
-    fecha == 2012 ~ "RENOVACION NACIONAL",
-    fecha == 2016 ~ "SOCIALISTA DE CHILE",
-    fecha == 2021 ~ "RENOVACION NACIONAL"
-  ),
-  alineamiento_partido = case_when(
-    partido_presidente == "POR LA DEMOCRACIA" & partido_electo == "POR LA DEMOCRACIA" ~ 1,
-    partido_presidente == "SOCIALISTA DE CHILE" & partido_electo == "SOCIALISTA DE CHILE" ~ 1,
-    partido_presidente == "RENOVACION NACIONAL" & partido_electo == "RENOVACION NACIONAL" ~ 1,
-    T ~ 0
-  ))
-```
-
-
-```{r}
-colnames(df_cambios_b)
-```
 
 ```{r}
 
 library("labelled")
 
-df_cambios_b <- df_cambios_b %>%    
-  select(-lista) %>% 
+df_final <- df_electoral_municipal %>%
+  select(tipo_eleccion, cargo, comuna, cod_com, fecha, periodo_electoral, 
+         candidato_pm, sexo_pm, pacto_pm, pacto_nombre_pm, partido_pm, sigla_partido_pm, coalicion_pm, votos_candidato_pm,
+         votos_candidato_pm_p,
+         candidato_sm, sexo_sm, pacto_sm, pacto_nombre_sm, partido_sm, sigla_partido_sm, coalicion_sm, votos_candidato_sm,
+         votos_candidato_sm_p, 
+         brecha_victoria, brecha_victoria_p, coalicion_electa_p = porc_coalicion_alcalde_electa,
+         coalicion_incumbente_p = porc_coalicion_alcalde_incumbente, 
+         reeleccion_coalicion_alcalde, reeleccion_alcalde, periodos_consecutivos_coalicion, periodos_consecutivos_alcalde,
+         coalicion_incumbente = coalicion_municipal_incumbente, participacion_alcalde_incum, elecciones_no_competitivas,
+         votos_nulos, votos_en_blanco, votos_comunales, votos_validos, votos_lista, votos_partido, votos_coalicion,
+         coalicion_alianza, coalicion_alianza_p, coalicion_concertacion, coalicion_concertacion_p, coalicion_independientes,
+         coalicion_independientes_p, coalicion_otros, coalicion_otros_p, coalicion_frente_amplio, coalicion_frente_amplio_p) %>% 
   labelled::set_variable_labels(
-                fecha = "Año de la eleción",
-                comuna = "Comuna",
-                alcalde_electo = "Nombre completo del alcalde electo",
-                sexo_electo = "Sexo registrado del alcalde electo, 0 = H; 1 = M",
-                partido_electo = "Partido político al que pertenece el alcalde electo",
-                coalicion_electo = "Coalición a la que pertenece el ganador",
-                reeleccion_alcalde = "Alcalde: 0 = No reelecta; 1 = Reelecta",
-                n_periodos_alcalde = "Número de periodos de reelección del alcalde",
-                total_votacion = "Votos totales en la votación comunal",
-                validamente_emitidos = "Votos válidamente emitidos",
-                votos_nulos = "Votos nulos",
-                votos_en_blanco = "Votos en blanco",
-                coalicion_concertacion = "Votos de la coalición Concentación (%)",
-                coalicion_alianza = "Votos de la coalición Alianza (%)",
-                coalicion_otros = "Votos de la coalición otros (%)",
-                coalicion_independientes = "Votos de independiendes (%)",
-                coalicion_frente_amplio = "Votos de Frente Amplio (%)",
-                primera_mayoria = "Primera mayoría comunal",
-                segunda_mayoria = "Segunda mayoría comunal",
-                brecha_victoria = "Diferencia entre la primera y segunda mayoría en las votaciones comunales",
-                porc_coalicion_electa = "Votos coalicion electa (%)",
-                porc_coalicion_incumbente = "Votos de la coalición incumbente (%)",
-                porc_cambio = "Diferencia entre t y t-1 en las votaciones obtenidas por la coalición incumbente",
-                reeleccion_coalicion = "Coalición: 0 = No reelecta; 1 = Reelecta",
-                n_periodos_coalicion = "Número de periodos de reelección de la coalición",
-                gobierno_nacional = "Coalición en el gobierno nacional",
-                alineamiento_electo = "Alineamiento entre el gobierno local electo y el gobierno nacional (coalición)",
-                alineamiento_incumbente = "Alineamiento entre el incumbente y el gobierno nacional (coalición)",
-                alineamiento_partido = "Alineamiento entre el gobierno local y el gobierno nacional (partido del presidente)",
-                incumbente = "Nombre del incumbente",
-                sexo_incumbente = "Sexo registrado del incumbente, 0 = H; 1 = M",
-                partido_incumbente = "Partido político al que pertenece el incumbente",
-                coalicion_incumbente = "Coalición a la que pertenece el incumbente",
-                partido_presidente = "Partido al que pertenece el Presidente de la República")
+                tipo_eleccion = "Tipo de elección", 
+                cargo = "Cargo a elegir", 
+                comuna = "Comuna", 
+                cod_com = "Código comunal", 
+                fecha = "Año de elección", 
+                periodo_electoral = "Periodo electoral", 
+                candidato_pm = "Nombre de candidato electo", 
+                sexo_pm = "Sexo de candidato electo", 
+                pacto_pm = "Pacto de candidato electo", 
+                pacto_nombre_pm = "Nombre del pacto del candidato electo", 
+                partido_pm = "Partido del candidato electo", 
+                sigla_partido_pm = "Sigla del partido del candidato electo", 
+                coalicion_pm = "Coalición del candidato electo", 
+                votos_candidato_pm = "Votos del candidato electo",
+                votos_candidato_pm_p = "Porcentaje de votos obtenidos por el candidato electo del total de votos válidos",
+                candidato_sm = "Candidato con la segunda mayoría", 
+                sexo_sm = "Sexo del candidato con la segunda mayoría", 
+                pacto_sm = "Pacto del candidato con la segunda mayoría", 
+                pacto_nombre_sm = "Nombre del pacto del candidato con la segunda mayoría", 
+                partido_sm = "Partido del candidato con la segunda mayoría", 
+                sigla_partido_sm = "Sigla del partido del candidato con la segunda mayoría", 
+                coalicion_sm = "Coalición del candidato con la segunda mayoría", 
+                votos_candidato_sm = " Votos del candidato con la segunda mayoría",
+                votos_candidato_sm_p = "Porcentaje de votos obtenidos por el candidato con la segunda mayoría del total de votos válidos",
+                brecha_victoria = "Votos de diferencia entre el candidato electo y candidato con la segunda mayoría", 
+                brecha_victoria_p = "Porcentaje de diferencia entre el candidato electo y candidato con la segunda mayoría", 
+                coalicion_electa_p = "Porcentaje de votos obtenido por la coalición electa",
+                coalicion_incumbente_p = "Porcentaje de votos obtenido por la coalición incumbente",
+                reeleccion_coalicion_alcalde = "Dummy reelección de la coalición incumbente", 
+                reeleccion_alcalde = "Dummy reelección del alcalde incumbente", 
+                periodos_consecutivos_coalicion = "Conteo de periodos consecutivos de la coalición incumbente", 
+                periodos_consecutivos_alcalde = "Conteo de periodos consecutivos del alcalde incumbente",
+                coalicion_incumbente = "Coalición incumbente", 
+                participacion_alcalde_incum = "Participación del alcalde incumbente en las elecciones", 
+                elecciones_no_competitivas = "Elecciones competitivas",
+                votos_nulos = "Votos nulos", 
+                votos_en_blanco = "Votos en blanco", 
+                votos_comunales = "Total de votos comunales", 
+                votos_validos = "Votos válidos", 
+                votos_lista = "Votos obtenidos por la lista", 
+                votos_partido = "Votos obtenidos por el partido", 
+                votos_coalicion = "Votos obtenidos por la coalición",
+                coalicion_alianza = "Votos obtenidos por la coalición Alianza", 
+                coalicion_alianza_p = "Porcentaje de votos obtenidos por la coalición Alianza",
+                coalicion_concertacion = "Votos obtenidos por la coalición Concertación",  
+                coalicion_concertacion_p = "Porcentaje de votos obtenidos por la coalición Concertación",
+                coalicion_independientes = "Votos obtenidos por independientes fuera de pacto", 
+                coalicion_independientes_p = "Porcentaje de votos obtenidos por independientes fuera de pacto",
+                coalicion_otros ="Votos obtenidos por otras coaliciones no alianza ni concertación", 
+                coalicion_otros_p = "Porcentaje de votos obtenidos por otras coaliciones no alianza ni concertación",
+                coalicion_frente_amplio = "Votos obtenidos por la coalición Frente Amplio", 
+                coalicion_frente_amplio_p = "Porcentaje de votos obtenidos por la coalición Frente Amplio")
 
-```
-
-Filtramos sólo los años 2004 hacia adelante:
-
-```{r}
-df_cambios_b <- df_cambios_b %>% 
-  filter(fecha > 2002)
 ```
 
 Guardamos la base de datos:
@@ -603,11 +558,11 @@ Guardamos la base de datos:
 ```{r}
 library(haven)
 
-write_dta(df_cambios_b, "output/230920 - Municipales - Base de datos.dta")
-write_rds(df_cambios_b, "output/230920 - Municipales - Base de datos.rds")
-write_sav(df_cambios_b, "output/230920 - Municipales - Base de datos.sav")
+write_dta(df_final, "data/231031 - Elecciones municipales.dta")
+write_rds(df_final, "data/231031 - Elecciones municipales.rds")
+write_sav(df_final, "data/231031 - Elecciones municipales.sav")
 
-sjPlot::view_df(df_cambios_b, show.labels = T)
+sjPlot::view_df(df_final, show.labels = T)
 
 ```
 
