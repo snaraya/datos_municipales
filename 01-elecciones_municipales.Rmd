@@ -18,6 +18,8 @@ library(sjmisc)
 
 # Base 1992-2016
 
+Revisar votos válidamente emitidos para el 2016 = Filtrar los nominados
+
 Carga de base de datos con las elecciones de 1992 a 2016:
 
 ```{r}
@@ -68,7 +70,7 @@ df_completa <- df_completa %>%
          sigla_partido, votos, votos_candidatos) %>% 
   mutate(votos = coalesce(votos, votos_candidatos)) %>% 
   select(-votos_candidatos) %>% 
-  filter(!(cargo == "CONCEJAL" & fecha > 2001))
+  filter(!(cargo %in% c("CONCEJAL","NOMINADO") & fecha > 2001))
 
 frq(df_completa, fecha)
 
@@ -551,6 +553,33 @@ df_final <- df_electoral_municipal %>%
                 coalicion_frente_amplio = "Votos obtenidos por la coalición Frente Amplio", 
                 coalicion_frente_amplio_p = "Porcentaje de votos obtenidos por la coalición Frente Amplio")
 
+```
+
+Agregar la diferencia de votos de el primero con el segundo:
+
+```{r}
+df_final <- df_final %>% 
+  group_by(comuna) %>% 
+  mutate(diferencia_coalicion_concertacion_p = coalicion_concertacion_p-lag(coalicion_concertacion_p),
+         diferencia_coalicion_alianza_p = coalicion_alianza_p-lag(coalicion_alianza_p),
+         diferencia_coalicion_otros_p = coalicion_otros_p-lag(coalicion_otros_p),
+         diferencia_coalicion_independientes_p = coalicion_independientes_p-lag(coalicion_independientes_p),
+         diferencia_coalicion_frente_amplio_p = coalicion_frente_amplio_p-lag(coalicion_frente_amplio_p)) %>% 
+  mutate(diferencia_coalicion_incumbente_p = case_when(
+    coalicion_incumbente == "concertacion" ~ diferencia_coalicion_concertacion_p,
+    coalicion_incumbente == "alianza" ~ diferencia_coalicion_alianza_p,
+    coalicion_incumbente == "independientes" ~ diferencia_coalicion_independientes_p,
+    coalicion_incumbente == "otros" ~ diferencia_coalicion_otros_p
+  ))
+
+df_final <- df_final %>% 
+  labelled::set_variable_labels(
+    diferencia_coalicion_concertacion_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Concertación en el tiempo t y t-1",
+    diferencia_coalicion_alianza_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Alianza en el tiempo t y t-1",
+    diferencia_coalicion_otros_p = "Diferencia del porcentaje total de votos obtenidos por otras coaliciones en el tiempo t y t-1",
+    diferencia_coalicion_independientes_p = "Diferencia del porcentaje total de votos obtenidos por independientes sin coalición en el tiempo t y t-1",
+    diferencia_coalicion_frente_amplio_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Frente Amplio en el tiempo t y t-1",
+    diferencia_coalicion_incumbente_p = "Diferencia del porcentaje total de votos obtenidos por la coalición incumbente en la comuna")
 ```
 
 Guardamos la base de datos:
