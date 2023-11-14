@@ -72,6 +72,8 @@ df_completa <- df_completa %>%
   select(-votos_candidatos) %>% 
   filter(!(cargo %in% c("CONCEJAL","NOMINADO") & fecha > 2001))
 
+writexl::write_xlsx(df_completa, "output/elecciones municipales 1992 2021.xlsx")
+
 frq(df_completa, fecha)
 
 df_completa_rank <- df_completa %>% 
@@ -453,6 +455,7 @@ df_presentacion <- haven::read_dta("input/base_consolidada_promedios_2001_2019.d
     periodo_electoral == 3 ~ 2012,
     periodo_electoral == 4 ~ 2016
   ))
+
 ```
 
 Unimos las bases de datos utilizando
@@ -472,6 +475,11 @@ df_electoral_municipal <- df_electoral_municipal %>%
   group_by(comuna) %>% 
   fill(., cod_com, .direction = "downup") %>% 
   mutate(periodo_electoral = seq_along(periodo_electoral))
+
+df_consolidada <- df_electoral_municipal %>% 
+  select(comuna, cod_com, candidato_pm, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas, votos_candidato_pm_p)
+
+writexl::write_xlsx(df_consolidada, "output/231112 - Participación.xlsx")
 
 ```
 
