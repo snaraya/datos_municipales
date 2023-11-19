@@ -476,17 +476,47 @@ df_electoral_municipal <- df_electoral_municipal %>%
   fill(., cod_com, .direction = "downup") %>% 
   mutate(periodo_electoral = seq_along(periodo_electoral))
 
-df_consolidada <- df_electoral_municipal %>% 
-  select(comuna, cod_com, candidato_pm, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas, votos_candidato_pm_p)
+df_electoral_municipal %>% 
+  filter(comuna == "rio claro") %>% 
+  select(fecha, comuna, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas)
 
-writexl::write_xlsx(df_consolidada, "output/231112 - Participación.xlsx")
+# df_consolidada <- df_electoral_municipal %>% 
+#   select(comuna, cod_com, candidato_pm, periodo_electoral, fecha, participacion_alcalde_incum, elecciones_no_competitivas, votos_candidato_pm_p)
+# 
+# writexl::write_xlsx(df_consolidada, "output/231112 - Participación.xlsx")
+```
+
+```{r}
+
+df_participacion <- readxl::read_excel("input/231115 - Participación_rec.xlsx") %>%
+  select(comuna, cod_com, fecha, participacion_alcalde_incum, elecciones_no_competitivas) %>% 
+  mutate(elecciones_no_competitivas = replace_na(elecciones_no_competitivas, value = 0))
+
+df_participacion %>% 
+  filter(comuna == "rio claro")
+
+colnames(df_completa_incumbente)
+
+df_completa_incumbente <- df_completa_incumbente %>% left_join(df_participacion)
+
+df_completa_incumbente <- df_completa_incumbente %>% 
+  group_by(comuna) %>% 
+  fill(., cod_com, .direction = "downup") %>% 
+  mutate(periodo_electoral = seq_along(fecha))
+
+df_completa_incumbente <- df_completa_incumbente %>% 
+  filter(!periodo_electoral %in% c(9, 10, 11))
+
+df_completa_incumbente %>% 
+  filter(comuna == "rio claro") %>% 
+  select(fecha, comuna, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas)
 
 ```
 
 Revisión de variables y ubicación:
 
 ```{r}
-colnames(df_electoral_municipal)
+colnames(df_completa_incumbente)
 ```
 
 
@@ -494,7 +524,7 @@ colnames(df_electoral_municipal)
 
 library("labelled")
 
-df_final <- df_electoral_municipal %>%
+df_final <- df_completa_incumbente %>%
   select(tipo_eleccion, cargo, comuna, cod_com, fecha, periodo_electoral, 
          candidato_pm, sexo_pm, pacto_pm, pacto_nombre_pm, partido_pm, sigla_partido_pm, coalicion_pm, votos_candidato_pm,
          votos_candidato_pm_p,
@@ -568,26 +598,26 @@ Agregar la diferencia de votos de el primero con el segundo:
 ```{r}
 df_final <- df_final %>% 
   group_by(comuna) %>% 
-  mutate(diferencia_coalicion_concertacion_p = coalicion_concertacion_p-lag(coalicion_concertacion_p),
-         diferencia_coalicion_alianza_p = coalicion_alianza_p-lag(coalicion_alianza_p),
-         diferencia_coalicion_otros_p = coalicion_otros_p-lag(coalicion_otros_p),
-         diferencia_coalicion_independientes_p = coalicion_independientes_p-lag(coalicion_independientes_p),
-         diferencia_coalicion_frente_amplio_p = coalicion_frente_amplio_p-lag(coalicion_frente_amplio_p)) %>% 
-  mutate(diferencia_coalicion_incumbente_p = case_when(
-    coalicion_incumbente == "concertacion" ~ diferencia_coalicion_concertacion_p,
-    coalicion_incumbente == "alianza" ~ diferencia_coalicion_alianza_p,
-    coalicion_incumbente == "independientes" ~ diferencia_coalicion_independientes_p,
-    coalicion_incumbente == "otros" ~ diferencia_coalicion_otros_p
+  mutate(diferencia_c_concertacion_p = coalicion_concertacion_p-lag(coalicion_concertacion_p),
+         diferencia_c_alianza_p = coalicion_alianza_p-lag(coalicion_alianza_p),
+         diferencia_c_otros_p = coalicion_otros_p-lag(coalicion_otros_p),
+         diferencia_c_independientes_p = coalicion_independientes_p-lag(coalicion_independientes_p),
+         diferencia_c_frente_amplio_p = coalicion_frente_amplio_p-lag(coalicion_frente_amplio_p)) %>% 
+  mutate(diferencia_c_incumbente_p = case_when(
+    coalicion_incumbente == "concertacion" ~ diferencia_c_concertacion_p,
+    coalicion_incumbente == "alianza" ~ diferencia_c_alianza_p,
+    coalicion_incumbente == "independientes" ~ diferencia_c_independientes_p,
+    coalicion_incumbente == "otros" ~ diferencia_c_otros_p
   ))
 
 df_final <- df_final %>% 
   labelled::set_variable_labels(
-    diferencia_coalicion_concertacion_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Concertación en el tiempo t y t-1",
-    diferencia_coalicion_alianza_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Alianza en el tiempo t y t-1",
-    diferencia_coalicion_otros_p = "Diferencia del porcentaje total de votos obtenidos por otras coaliciones en el tiempo t y t-1",
-    diferencia_coalicion_independientes_p = "Diferencia del porcentaje total de votos obtenidos por independientes sin coalición en el tiempo t y t-1",
-    diferencia_coalicion_frente_amplio_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Frente Amplio en el tiempo t y t-1",
-    diferencia_coalicion_incumbente_p = "Diferencia del porcentaje total de votos obtenidos por la coalición incumbente en la comuna")
+    diferencia_c_concertacion_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Concertación en el tiempo t y t-1",
+    diferencia_c_alianza_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Alianza en el tiempo t y t-1",
+    diferencia_c_otros_p = "Diferencia del porcentaje total de votos obtenidos por otras coaliciones en el tiempo t y t-1",
+    diferencia_c_independientes_p = "Diferencia del porcentaje total de votos obtenidos por independientes sin coalición en el tiempo t y t-1",
+    diferencia_c_frente_amplio_p = "Diferencia del porcentaje total de votos obtenidos por la coalición Frente Amplio en el tiempo t y t-1",
+    diferencia_c_incumbente_p = "Diferencia del porcentaje total de votos obtenidos por la coalición incumbente en la comuna")
 ```
 
 Guardamos la base de datos:
@@ -595,11 +625,10 @@ Guardamos la base de datos:
 ```{r}
 library(haven)
 
-write_dta(df_final, "data/231031 - Elecciones municipales.dta")
-write_rds(df_final, "data/231031 - Elecciones municipales.rds")
-write_sav(df_final, "data/231031 - Elecciones municipales.sav")
+write_dta(df_final, "data/231115 - Elecciones municipales.dta")
+write_rds(df_final, "data/231115 - Elecciones municipales.rds")
+write_sav(df_final, "data/231115 - Elecciones municipales.sav")
 
 sjPlot::view_df(df_final, show.labels = T)
-
 ```
 
