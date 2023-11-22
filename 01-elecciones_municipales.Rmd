@@ -81,7 +81,8 @@ df_completa_rank <- df_completa %>%
   mutate(votos_comunales = sum(votos)) %>% 
   filter(!candidato %in% c("VOTOS NULOS","VOTOS EN BLANCO")) %>% 
   arrange(votos, .by_group = T) %>% 
-  mutate(rank_votos = as.integer(rank(-votos)))
+  mutate(rank_votos = as.integer(rank(-votos))) %>% 
+  group_by(fecha, comuna, lista, pacto)
 ```
 
 ## Base de datos votos nulos, blanco, válidamente emitidos y totales.
@@ -170,6 +171,18 @@ df_completa <- df_completa_digitacion %>%
   group_by(fecha, comuna, coalicion) %>% 
   mutate(votos_coalicion = sum(votos_candidato, na.rm = T)) %>% 
   ungroup()
+
+df_n_candidatos <- df_completa_digitacion %>% 
+  group_by(fecha, comuna, coalicion) %>% 
+  mutate(n_candidatos = n()) %>% 
+  select(fecha, comuna, coalicion, n_candidatos) %>% 
+  unique() %>% 
+  mutate(coalicion = str_to_lower(coalicion)) %>% 
+  pivot_wider(names_from = coalicion, 
+              values_from = n_candidatos, 
+              names_glue = "{coalicion}_{.value}") %>% 
+  janitor::clean_names() %>% select(-8)
+
 
 rm(df_listas, df_completa_digitacion, df_completa_votacion)
 ```
@@ -368,10 +381,13 @@ df_completa_incumbente %>%
 
 # Revisión de conteo
 
-df_completa_incumbente <- df_completa_incumbente %>% 
+df_n_periodos <- df_completa_incumbente %>% 
+  select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde) %>% 
   mutate(reeleccion_coalicion_alcalde = replace_na(reeleccion_coalicion_alcalde, value = 0)) %>% 
   mutate(periodos_consecutivos_coalicion = hutilscpp::cumsum_reset(reeleccion_coalicion_alcalde >= 1,
-                                                                   reeleccion_coalicion_alcalde))
+                                                                   reeleccion_coalicion_alcalde),
+         periodos_consecutivos_coalicion_a = if_else(fecha == 1992, 0, periodos_consecutivos_coalicion+1),
+         periodos_consecutivos_coalicion_b = if_else(fecha == 1992, 0, lag(periodos_consecutivos_coalicion))) 
 
 
 df_completa_incumbente %>% 
@@ -631,4 +647,13 @@ write_sav(df_final, "data/231115 - Elecciones municipales.sav")
 
 sjPlot::view_df(df_final, show.labels = T)
 ```
+
+
+
+- Número de candidatos por coalición.
+- Información (primeras 7 columnas) para el incumbente. Tener en consideración la participación, no la reelección.
+- Arreglar la columna con cantidad de periodos electorales. Parte en cero, luego en 1 siempre.
+
+
+df_n_candidatos pegarla al final = contiene información sobre el n de candidatos por coalición.
 
