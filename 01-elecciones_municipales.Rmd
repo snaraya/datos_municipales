@@ -183,8 +183,9 @@ df_n_candidatos <- df_completa_digitacion %>%
               names_glue = "{coalicion}_{.value}") %>% 
   janitor::clean_names() %>% select(-8)
 
+df_completa <- left_join(df_completa, df_n_candidatos)
 
-rm(df_listas, df_completa_digitacion, df_completa_votacion)
+rm(df_listas, df_completa_digitacion, df_completa_votacion, df_n_candidatos)
 ```
 
 
@@ -381,14 +382,11 @@ df_completa_incumbente %>%
 
 # Revisión de conteo
 
-df_n_periodos <- df_completa_incumbente %>% 
-  select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde) %>% 
+df_completa_incumbente <- df_completa_incumbente %>% 
+  #select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde) %>% 
   mutate(reeleccion_coalicion_alcalde = replace_na(reeleccion_coalicion_alcalde, value = 0)) %>% 
   mutate(periodos_consecutivos_coalicion = hutilscpp::cumsum_reset(reeleccion_coalicion_alcalde >= 1,
-                                                                   reeleccion_coalicion_alcalde),
-         periodos_consecutivos_coalicion_a = if_else(fecha == 1992, 0, periodos_consecutivos_coalicion+1),
-         periodos_consecutivos_coalicion_b = if_else(fecha == 1992, 0, lag(periodos_consecutivos_coalicion))) 
-
+                                                                 reeleccion_coalicion_alcalde))
 
 df_completa_incumbente %>% 
   select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, periodos_consecutivos_coalicion) %>% 
@@ -535,6 +533,92 @@ Revisión de variables y ubicación:
 colnames(df_completa_incumbente)
 ```
 
+# Variables nuevas: 
+
+- Información (primeras 7 columnas) para el incumbente. Tener en consideración la participación, no la reelección.
+
+```{r}
+df_incumbente <- df_completa_incumbente %>% 
+  select(fecha, comuna, candidato_pm, coalicion_pm, reeleccion_alcalde, participacion_alcalde_incum, votos_validos) %>% 
+  mutate(incumbente = case_when(
+    reeleccion_alcalde == 1 & participacion_alcalde_incum == 1 ~ lag(candidato_pm),
+    reeleccion_alcalde == 0 & participacion_alcalde_incum == 1 ~ lag(candidato_pm),
+    reeleccion_alcalde == 0 & participacion_alcalde_incum == 0 ~ NA_character_
+  )) %>% filter(fecha > 2000)
+
+df_completa_alcaldes <- df_completa_alcaldes %>% 
+  mutate(across(where(is.character), 
+                \(x) stringi::stri_trans_general(str_to_lower(x), "latin-ascii"))) %>% 
+  select(fecha, comuna, candidato, sexo, pacto, sigla_partido, votos_candidato, partido, pacto_nombre, coalicion)
+  
+df_experimento <- left_join(df_incumbente, df_completa_alcaldes, by = join_by(fecha, comuna, incumbente == candidato))
+
+```
+
+
+- Arreglar la columna con cantidad de periodos electorales. Parte en cero, luego en 1 siempre.
+
+```{r}
+df_n_periodos <- df_completa_incumbente %>% 
+  group_by(comuna) %>% 
+  select(fecha, comuna, candidato_pm, coalicion_pm, reeleccion_alcalde, participacion_alcalde_incum, periodos_consecutivos_alcalde, periodos_consecutivos_coalicion) %>% 
+  mutate(periodos_consecutivos_alcalde = case_when(
+    fecha == 1992 ~ 0,
+    T ~ periodos_consecutivos_alcalde
+  )) %>% 
+  mutate(periodos_consecutivos_alcalde = lag(periodos_consecutivos_alcalde)) %>% 
+  mutate(periodos_consecutivos_alcalde = case_when(    
+    fecha == 1992 ~ 0,
+    fecha == 1996 ~ 1,
+    T ~ periodos_consecutivos_alcalde)) %>% 
+  mutate(periodos_consecutivos_coalicion = case_when(
+    fecha == 1992 ~ 0,
+    T ~ periodos_consecutivos_coalicion
+  )) %>% 
+  mutate(periodos_consecutivos_coalicion = lag(periodos_consecutivos_coalicion)) %>% 
+  mutate(periodos_consecutivos_coalicion = case_when(    
+    fecha == 1992 ~ 0,
+    fecha == 1996 ~ 1,
+    T ~ periodos_consecutivos_coalicion))
+```
+
+
+- Número de periodos coalicion y alcalde: df_n_periodos
+- % coalicion incumbente: df_coalicion_p
+
+
+
+- % de la coalicion incumbente
+
+```{r}
+
+df_coalicion_p <- df_completa_incumbente %>% 
+  select(fecha, comuna, candidato_pm, votos_candidato_pm, coalicion_pm, votos_coalicion, votos_candidato_pm_p, 
+         votos_coalicion, coalicion_municipal_incumbente, votos_validos, otros_n_candidatos:frente_amplio_n_candidatos, 
+         coalicion_concertacion_p, coalicion_alianza_p, coalicion_independientes_p, coalicion_otros_p, 
+         coalicion_frente_amplio_p) %>% 
+  rowwise() %>% 
+  mutate(votos_coalicion_p = votos_coalicion/votos_validos) %>% 
+  group_by(comuna) %>% 
+  mutate(votos_coalicion_incumbente_p = case_when(
+    independientes_n_candidatos == 1 & coalicion_municipal_incumbente == "independientes" ~ coalicion_independientes_p,
+    independientes_n_candidatos != 1 & coalicion_municipal_incumbente == "independientes" ~ votos_candidato_pm_p,
+    concertacion_n_candidatos == 1 & coalicion_municipal_incumbente == "concertacion" ~ coalicion_concertacion_p,
+    concertacion_n_candidatos != 1 & coalicion_municipal_incumbente == "concertacion" ~ votos_candidato_pm_p,
+    alianza_n_candidatos == 1 & coalicion_municipal_incumbente == "alianza" ~ coalicion_alianza_p,
+    alianza_n_candidatos != 1 & coalicion_municipal_incumbente == "alianza" ~ votos_candidato_pm_p,
+    otros_n_candidatos == 1 & coalicion_municipal_incumbente == "otros" ~ coalicion_otros_p,
+    otros_n_candidatos != 1 & coalicion_municipal_incumbente == "otros" ~ votos_candidato_pm_p,
+    frente_amplio_n_candidatos == 1 & coalicion_municipal_incumbente == "frente amplio" ~ coalicion_frente_amplio_p,
+    frente_amplio_n_candidatos != 1 & coalicion_municipal_incumbente == "frente amplio" ~ votos_candidato_pm_p
+  )) %>% 
+  select(fecha, comuna, candidato_pm, coalicion_pm, coalicion_municipal_incumbente, votos_candidato_pm_p, votos_coalicion_p, 
+         votos_coalicion_incumbente_p,concertacion_n_candidatos, alianza_n_candidatos, otros_n_candidatos,
+         independientes_n_candidatos) 
+
+```
+
+
 
 ```{r}
 
@@ -650,10 +734,4 @@ sjPlot::view_df(df_final, show.labels = T)
 
 
 
-- Número de candidatos por coalición.
-- Información (primeras 7 columnas) para el incumbente. Tener en consideración la participación, no la reelección.
-- Arreglar la columna con cantidad de periodos electorales. Parte en cero, luego en 1 siempre.
-
-
-df_n_candidatos pegarla al final = contiene información sobre el n de candidatos por coalición.
 
