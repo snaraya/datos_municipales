@@ -23,60 +23,60 @@ Revisar votos válidamente emitidos para el 2016 = Filtrar los nominados
 Carga de base de datos con las elecciones de 1992 a 2016:
 
 ```{r}
-df_elecciones <- readxl::read_excel("input/municipales_1992_2016.xlsx") %>% 
+df_elections_1992_2016 <- readxl::read_excel("input/municipales_1992_2016.xlsx") %>% 
   mutate(fecha = year(fecha_eleccion)) %>% 
   select(-fecha_eleccion) %>% 
   mutate(candidato = str_to_upper(candidato)) %>% 
   filter(!candidato %in% c("TOTAL VOTACIÓN", "VÁLIDAMENTE EMITIDOS"))
 
-colnames(df_elecciones)
+colnames(df_elections_1992_2016)
 
-df_elecciones <- df_elecciones %>% 
+df_elections_1992_2016 <- df_elections_1992_2016 %>% 
   select(tipo_eleccion, fecha, cargo, comuna, candidato, sexo, electo, lista, partido, sigla_partido, votos)
 ```
 
 Carga de la base de datos 2021:
 
 ```{r}
-df_alcaldes <- read_rds("output/231029 - BBDD Alcaldes 2021.rds") %>% 
+df_eleccions_2021 <- read_rds("output/231029 - BBDD Alcaldes 2021.rds") %>% 
   mutate(tipo_eleccion = "MUNICIPALES",
          cargo = "ALCALDE",
          fecha = 2021)
 
-df_alcaldes <- df_alcaldes %>% 
+df_eleccions_2021 <- df_eleccions_2021 %>% 
   mutate(comuna = str_replace(comuna, "LLAILLAY", "LLAY-LLAY"),
          comuna = str_replace(comuna, "AYSEN", "AISEN"),
          comuna = str_replace(comuna, "TREHUACO", "TREGUACO")) %>% 
   filter(!(candidato == "GARY LEIVA ROJO" & is.na(pacto)))
 
-colnames(df_alcaldes)
+colnames(df_eleccions_2021)
 ```
 
 Unir ambas bases de datos:
 
 ```{r}
-df_completa <- bind_rows(df_elecciones, df_alcaldes)
+df_county_elections <- bind_rows(df_elections_1992_2016, df_eleccions_2021)
 
-rm(df_alcaldes, df_elecciones)
+rm(df_elections_1992_2016, df_eleccions_2021)
 
-colnames(df_completa)
+colnames(df_county_elections)
 ```
 
 Ordenar la base de datos:
 
 ```{r}
-df_completa <- df_completa %>% 
+df_county_elections <- df_county_elections %>% 
   select(tipo_eleccion, fecha, cargo, comuna, candidato, sexo, electo, lista, pacto, partido,
          sigla_partido, votos, votos_candidatos) %>% 
   mutate(votos = coalesce(votos, votos_candidatos)) %>% 
   select(-votos_candidatos) %>% 
   filter(!(cargo %in% c("CONCEJAL","NOMINADO") & fecha > 2001))
 
-writexl::write_xlsx(df_completa, "output/elecciones municipales 1992 2021.xlsx")
+#writexl::write_xlsx(df_county_elections, "output/elecciones municipales 1992 2021.xlsx")
 
-frq(df_completa, fecha)
+frq(df_county_elections, fecha)
 
-df_completa_rank <- df_completa %>% 
+df_county_elections_rank <- df_county_elections %>% 
   group_by(fecha, comuna) %>% 
   mutate(votos_comunales = sum(votos)) %>% 
   filter(!candidato %in% c("VOTOS NULOS","VOTOS EN BLANCO")) %>% 
@@ -88,7 +88,7 @@ df_completa_rank <- df_completa %>%
 ## Base de datos votos nulos, blanco, válidamente emitidos y totales.
 
 ```{r}
-df_votos <- df_completa %>% 
+df_votes <- df_county_elections %>% 
   select(fecha, cargo, comuna, candidato, votos) %>% 
   filter(candidato %in% c("VOTOS NULOS","VOTOS EN BLANCO")) %>%
   pivot_wider(names_from = candidato, values_from = votos) %>% 
@@ -96,15 +96,16 @@ df_votos <- df_completa %>%
 ```
 
 ```{r}
-df_completa_votacion <- left_join(df_completa_rank, df_votos)
+df_elections_votes <- left_join(df_county_elections_rank, df_votes)
 
-df_completa_votacion <- df_completa_votacion %>% 
+df_elections_votes <- df_elections_votes %>% 
   rowwise() %>% 
   mutate(votos_validos = votos_comunales - sum(votos_nulos, votos_en_blanco))
 
-rm(df_completa, df_completa_rank, df_votos)
+rm(df_county_elections, df_county_elections_rank, df_votes)
 
-df_completa_votacion <- df_completa_votacion %>% 
+df_elections_votes <- df_elections_votes %>% 
+  ungroup() %>% 
   mutate(pacto = coalesce(lista, pacto)) %>% 
   select(fecha, tipo_eleccion, cargo, comuna, candidato, sexo, electo, rank_votos, pacto, partido, sigla_partido, 
          votos_candidato = votos, votos_nulos, votos_en_blanco, votos_comunales, votos_validos)
@@ -113,8 +114,8 @@ df_completa_votacion <- df_completa_votacion %>%
 Guardamos esa base:
 
 ```{r eval=F}
-write_rds(df_completa_votacion, "output/231030 - Base completa elecciones municipales.rds")
-haven::write_dta(df_completa_votacion, "output/231030 - Base completa elecciones municipales.dta")
+# write_rds(df_completa_votacion, "output/231030 - Base completa elecciones municipales.rds")
+# haven::write_dta(df_completa_votacion, "output/231030 - Base completa elecciones municipales.dta")
 ```
 
 ## Base de listas y partidos políticos por elección:
@@ -122,13 +123,13 @@ haven::write_dta(df_completa_votacion, "output/231030 - Base completa elecciones
 Revisión de partidos:
 
 ```{r}
-df_completa_votacion %>% 
+df_elections_votes %>% 
   ungroup() %>% 
   frq(partido)
 ```
 
 ```{r}
-df_listas <- df_completa_votacion %>% 
+df_list <- df_elections_votes %>% 
   ungroup() %>% 
   mutate_at(vars(pacto, partido), ~str_to_upper(.), ~str_squish(.)) %>% 
   select(fecha, pacto, partido) %>% 
@@ -139,21 +140,21 @@ df_listas <- df_completa_votacion %>%
 Guardamos la base de datos con la información de partidos, listas y pactos:
 
 ```{r eval = F}
-writexl::write_xlsx(df_listas, "output/231030 - Pactos.xlsx")
+#writexl::write_xlsx(df_list, "output/231030 - Pactos.xlsx")
 ```
 
 Leemos la base de datos de pactos/listas electorales actualizada y estandarizada:
 
 ```{r}
-df_listas <- readxl::read_xlsx("input/231030 - Pactos_rec.xlsx") %>% 
+df_list <- readxl::read_xlsx("input/231030 - Pactos_rec.xlsx") %>% 
   rename(pacto = lista, pacto_nombre = pacto_rec, coalicion = categoria)
 ```
 
 Unimos y reemplazamos las columnas por las nuevas:
 
 ```{r}
-df_completa_digitacion <- df_completa_votacion %>% 
-  left_join(df_listas) %>% 
+df_elections_votes <- df_elections_votes %>% 
+  left_join(df_list) %>% 
   select(-partido) %>% 
   rename(partido = partido_rec)
 ```
@@ -163,7 +164,7 @@ df_completa_digitacion <- df_completa_votacion %>%
 Calculamos los votos obtenidos por pacto y luego por partido:
 
 ```{r}
-df_completa <- df_completa_digitacion %>% 
+df_municipal_elections <- df_elections_votes %>% 
   group_by(fecha, comuna, pacto_nombre) %>%
   mutate(votos_lista = sum(votos_candidato, na.rm = T)) %>%
   group_by(fecha, comuna, partido) %>%
@@ -172,7 +173,7 @@ df_completa <- df_completa_digitacion %>%
   mutate(votos_coalicion = sum(votos_candidato, na.rm = T)) %>% 
   ungroup()
 
-df_n_candidatos <- df_completa_digitacion %>% 
+df_n_candidates <- df_elections_votes %>% 
   group_by(fecha, comuna, coalicion) %>% 
   mutate(n_candidatos = n()) %>% 
   select(fecha, comuna, coalicion, n_candidatos) %>% 
@@ -183,14 +184,14 @@ df_n_candidatos <- df_completa_digitacion %>%
               names_glue = "{coalicion}_{.value}") %>% 
   janitor::clean_names() %>% select(-8)
 
-df_completa <- left_join(df_completa, df_n_candidatos)
+df_municipal_elections <- left_join(df_municipal_elections, df_n_candidates)
 
-rm(df_listas, df_completa_digitacion, df_completa_votacion, df_n_candidatos)
+rm(df_list, df_elections_votes, df_n_candidates)
 ```
 
 
 ```{r}
-df_coalicion <- df_completa %>% 
+df_coalition <- df_municipal_elections %>% 
   select(fecha, cargo, comuna, coalicion, votos_coalicion) %>%
   distinct() %>% 
   pivot_wider(values_from = votos_coalicion, names_from = coalicion, names_prefix = "coalicion") %>% 
@@ -198,14 +199,16 @@ df_coalicion <- df_completa %>%
 ```
 
 ```{r}
-df_completa <- df_completa %>% 
-  left_join(df_coalicion)
+df_municipal_elections <- df_municipal_elections %>% 
+  left_join(df_coalition)
+
+rm(df_coalition)
 ```
 
 Pasamos a %
 
 ```{r}
-df_completa <- df_completa %>% 
+df_municipal_elections <- df_municipal_elections %>% 
   rowwise() %>% 
   mutate(coalicion_concertacion_p = coalicion_concertacion/votos_validos,
          coalicion_alianza_p = coalicion_alianza/votos_validos,
@@ -218,13 +221,17 @@ df_completa <- df_completa %>%
 Vemos las columnas que tenemos hasta el momento:
 
 ```{r}
-colnames(df_completa)
+colnames(df_municipal_elections)
+
+df_all_candidates_by_year <- df_municipal_elections %>% 
+  mutate(votos_candidato_p = votos_candidato/votos_validos) %>% 
+  select(1:6, 9:11, pacto_nombre:coalicion, votos_candidato_p)
 ```
 
 Ahora, dejamos a la primera y segunda mayoría por comuna. Seleccionamos `ALCALDE` en las elecciones de 1992. 1996 y 2000.
 
 ```{r}
-df_completa_alcaldes <- df_completa %>% 
+df_municipal_elections <- df_municipal_elections %>% 
   filter(rank_votos %in% c(1,2) | electo == "ALCALDE") %>% 
   ungroup()
 ```
@@ -234,19 +241,19 @@ Seleccionando de esta manera, quedan comunas donde la segunda mayoría es "VOTO 
 Nos quedan 3094 observaciones.
 
 ```{r}
-flat_table(df_completa_alcaldes, coalicion, fecha)
+flat_table(df_municipal_elections, coalicion, fecha)
 ```
 
 Revisamos si coincide los alcaldes con las votaciones en los años 1992, 1996 y 2000:
 
 ```{r}
-flat_table(df_completa_alcaldes, rank_votos)
+flat_table(df_municipal_elections, rank_votos)
 ```
 
 Revisamos los alcaldes donde no tienen la primera mayoría en su comuna:
 
 ```{r}
-df_completa_alcaldes %>% 
+df_municipal_elections %>% 
   select(fecha, comuna, candidato, electo, rank_votos) %>% 
   filter(rank_votos > 2) %>% 
   print(n = 100)
@@ -259,36 +266,38 @@ df_completa_alcaldes %>%
 Para las últimas elecciones, no existe la columna género. Por ese motivo, tendremos que digitarlo:
 
 ```{r eval = F}
-df_completa_alcaldes %>%
-  filter(fecha == 2021) %>% 
-  select(fecha, comuna, candidato, rank_votos) %>% 
-  writexl::write_xlsx("output/231030 - Género.xlsx")
+# df_municipal_elections %>%
+#   filter(fecha == 2021) %>% 
+#   select(fecha, comuna, candidato, rank_votos) %>% 
+#   writexl::write_xlsx("output/231030 - Género.xlsx")
 ```
 
 ```{r}
-df_completa_alcaldes <- df_completa_alcaldes %>% 
+df_municipal_elections <- df_municipal_elections %>% 
   filter(!is.na(comuna))
 ```
 
 Leemos la base de datos nueva con el género de los candidatos de las elecciones 2021:
 
 ```{r}
-df_genero <- readxl::read_excel("input/231030 - Género_rec.xlsx")
+df_gender <- readxl::read_excel("input/231030 - Género_rec.xlsx")
 ```
 
 ```{r}
-df_completa_alcaldes_genero <- df_completa_alcaldes %>%
-  left_join(df_genero)
+df_municipal_elections <- df_municipal_elections %>%
+  left_join(df_gender)
+
+rm(df_gender)
 ```
 
 ```{r}
-flat_table(df_completa_alcaldes_genero, fecha, sexo)
+flat_table(df_municipal_elections, fecha, sexo)
 ```
 
 Revisamos si hay candidatos sin sexo asignado:
 
 ```{r}
-df_completa_alcaldes_genero <- df_completa_alcaldes_genero %>% 
+df_municipal_elections <- df_municipal_elections %>% 
   mutate(sexo = coalesce(sexo, genero)) %>% 
   select(-genero)
 ```
@@ -296,7 +305,7 @@ df_completa_alcaldes_genero <- df_completa_alcaldes_genero %>%
 Seleccionamos las variables de interés:
 
 ```{r}
-df_primera_mayoria <- df_completa_alcaldes_genero %>% 
+df_winner <- df_municipal_elections %>% 
   mutate(
   puestos_votacion = case_when(
     electo == "ALCALDE" ~ 'primera_mayoria',
@@ -305,7 +314,7 @@ df_primera_mayoria <- df_completa_alcaldes_genero %>%
     T ~ "otro")) %>% 
   filter(puestos_votacion == 'primera_mayoria')
 
-df_segunda_mayoria <- df_completa_alcaldes_genero %>% 
+df_runner_up <- df_municipal_elections %>% 
   mutate(
   puestos_votacion = case_when(
     electo == "ALCALDE" ~ 'primera_mayoria',
@@ -313,21 +322,22 @@ df_segunda_mayoria <- df_completa_alcaldes_genero %>%
     rank_votos == 2 ~ 'segunda_mayoria',
     T ~ "otro")) %>% 
   filter(puestos_votacion != 'primera_mayoria')
+
 ```
 
 ```{r}
-colnames(df_primera_mayoria)
+colnames(df_winner)
 
-df_primera_mayoria <- df_primera_mayoria %>% 
+df_winner <- df_winner %>% 
   rename_at(vars(candidato, sexo, pacto, pacto_nombre, partido, sigla_partido, votos_candidato, coalicion), 
             ~paste0(., "_pm")) %>% 
   select(-puestos_votacion, -rank_votos)
 
-df_segunda_mayoria <- df_segunda_mayoria %>% 
+df_runner_up <- df_runner_up %>% 
   rename_at(vars(candidato, sexo, pacto, pacto_nombre, partido, sigla_partido, votos_candidato, coalicion), 
             ~paste0(., "_sm"))
 
-df_segunda_mayoria <- df_segunda_mayoria %>% 
+df_runner_up <- df_runner_up %>% 
   group_by(fecha, comuna) %>% 
   unique() %>% 
   mutate(mas_de_uno = if_else(length(duplicated(comuna))==2, TRUE, FALSE)) %>% 
@@ -335,22 +345,24 @@ df_segunda_mayoria <- df_segunda_mayoria %>%
   slice_max(votos_candidato_sm) %>% 
   select(-mas_de_uno, -puestos_votacion, -rank_votos)
 
-colnames(df_segunda_mayoria)
+colnames(df_runner_up)
 ```
 
 
 ```{r}
-df_completa <- left_join(df_primera_mayoria, df_segunda_mayoria, by = join_by(fecha, comuna))
+df_municipal_elections <- left_join(df_winner, df_runner_up, by = join_by(fecha, comuna))
 
-df_completa <- df_completa %>% 
+df_municipal_elections <- df_municipal_elections %>% 
   select(-ends_with(".y")) %>% 
   rename_at(vars(ends_with(".x")), ~str_remove(., ".x"))
+
+rm(df_runner_up, df_winner)
 ```
 
 Calculamos el % a las columnas de `primera_votacion` y `segunda_votacion`, además de crear la `dummy_genero` y `brecha_victoria`.
 
 ```{r}
-df_completa <- df_completa %>% 
+df_municipal_elections <- df_municipal_elections %>% 
   rowwise() %>% 
   mutate(votos_candidato_pm_p = votos_candidato_pm/votos_validos,
          votos_candidato_sm_p = votos_candidato_sm/votos_validos,
@@ -364,7 +376,7 @@ df_completa <- df_completa %>%
 Ahora, haremos las variables relacionadas con la reeleccion de coalicion incumbente:
 
 ```{r}
-df_completa_incumbente <- df_completa %>% 
+df_municipal_incumbent <- df_municipal_elections %>% 
   group_by(comuna) %>% 
   mutate(reeleccion_coalicion_alcalde = if_else(lag(coalicion_pm) == coalicion_pm, 1, 0),
          porc_coalicion_alcalde_electa = case_when(
@@ -372,25 +384,25 @@ df_completa_incumbente <- df_completa %>%
            coalicion_pm == "ALIANZA"        ~ coalicion_alianza_p,
            coalicion_pm == "INDEPENDIENTES" ~ coalicion_independientes_p,
            coalicion_pm == "OTROS"          ~ coalicion_otros_p,
-           coalicion_pm == "FRENTE AMPLIO"          ~ coalicion_frente_amplio_p))
+           coalicion_pm == "FRENTE AMPLIO"  ~ coalicion_frente_amplio_p))
 
 # Revisión por comuna
 
-df_completa_incumbente %>% 
+df_municipal_incumbent %>% 
   select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, porc_coalicion_alcalde_electa) %>% 
   filter(comuna == "SANTIAGO") 
 
 # Revisión de conteo
 
-df_completa_incumbente <- df_completa_incumbente %>% 
+df_municipal_incumbent <- df_municipal_incumbent %>% 
   #select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde) %>% 
   mutate(reeleccion_coalicion_alcalde = replace_na(reeleccion_coalicion_alcalde, value = 0)) %>% 
   mutate(periodos_consecutivos_coalicion = hutilscpp::cumsum_reset(reeleccion_coalicion_alcalde >= 1,
                                                                  reeleccion_coalicion_alcalde))
 
-df_completa_incumbente %>% 
+df_municipal_incumbent %>% 
   select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, periodos_consecutivos_coalicion) %>% 
-  filter(comuna == "SANTIAGO")
+  filter(comuna == "TALTAL")
 ```
 
 Ahora, reeleccion por candidato:
@@ -398,7 +410,7 @@ Ahora, reeleccion por candidato:
 Primero, haremos una nueva base de datos con información del año, comuna y nombre del candidato:
 
 ```{r}
-df_candidato_ganador <- df_completa_incumbente %>% 
+df_winner <- df_municipal_incumbent %>% 
   select(fecha, comuna, candidato_pm, reeleccion_coalicion_alcalde, periodos_consecutivos_coalicion) %>% 
   arrange(comuna, fecha)
 ```
@@ -406,7 +418,7 @@ df_candidato_ganador <- df_completa_incumbente %>%
 Guardamos la base de datos para su revisión manual:
 
 ```{r}
-writexl::write_xlsx(df_candidato_ganador, "output/231030 - Candidatos.xlsx")
+#writexl::write_xlsx(df_winner, "output/231030 - Candidatos.xlsx")
 ```
 
 ## Reeleción de candidatos
@@ -414,7 +426,7 @@ writexl::write_xlsx(df_candidato_ganador, "output/231030 - Candidatos.xlsx")
 Cargamos la base de datos con la reelección de candidatos digitada:
 
 ```{r}
-df_candidato <- readxl::read_excel("input/231030 - Candidatos_rec.xlsx") %>% 
+df_winner <- readxl::read_excel("input/231030 - Candidatos_rec.xlsx") %>% 
   select(1,2,3,7) %>% 
   rename(periodos_consecutivos_alcalde = 4) %>% 
   mutate(reeleccion_alcalde = if_else(periodos_consecutivos_alcalde != 1, 1, 0))
@@ -423,14 +435,14 @@ df_candidato <- readxl::read_excel("input/231030 - Candidatos_rec.xlsx") %>%
 Unimos la base de datos con la planilla de reelección:
 
 ```{r}
-df_completa_incumbente <- df_completa_incumbente %>% 
-  left_join(df_candidato, by = join_by(fecha, comuna, candidato_pm))
+df_municipal_incumbent <- df_municipal_incumbent %>% 
+  left_join(df_winner, by = join_by(fecha, comuna, candidato_pm))
 
-df_completa_incumbente <- df_completa_incumbente %>% 
+df_municipal_incumbent <- df_municipal_incumbent %>% 
   group_by(comuna) %>% 
   arrange(fecha, .by_group = T)
 
-df_completa_incumbente <- df_completa_incumbente %>% 
+df_municipal_incumbent <- df_municipal_incumbent %>% 
   mutate(periodos_consecutivos_coalicion = periodos_consecutivos_coalicion + 1,
          coalicion_municipal_incumbente = lag(coalicion_pm), 
          porc_coalicion_alcalde_incumbente = case_when(
@@ -441,27 +453,27 @@ df_completa_incumbente <- df_completa_incumbente %>%
            coalicion_municipal_incumbente == "FRENTE AMPLIO" ~ coalicion_frente_amplio_p
          ))
 
-df_completa_incumbente %>% 
+df_municipal_incumbent %>% 
   select(fecha, comuna, candidato_pm, coalicion_pm, coalicion_municipal_incumbente, porc_coalicion_alcalde_incumbente)
 ```
 
 Transformamos las variables de chr a minúscula:
 
 ```{r}
-df_completa_incumbente <- df_completa_incumbente %>% 
+df_municipal_incumbent <- df_municipal_incumbent %>% 
   select(tipo_eleccion, cargo, comuna, candidato_pm, candidato_sm, sexo_pm, sexo_sm, pacto_nombre_pm, pacto_nombre_sm,
          partido_pm, partido_sm, coalicion_pm, coalicion_sm, everything()) %>% 
   mutate(across(where(is.character), 
                 \(x) stringi::stri_trans_general(str_to_lower(x), "latin-ascii"))) %>% 
   mutate(comuna = stringi::stri_trans_general(str_to_lower(comuna), "latin-ascii"))
 
-df_completa_incumbente <- df_completa_incumbente %>% ungroup()
+df_municipal_incumbent <- df_municipal_incumbent %>% ungroup()
 ```
 
 Agregamos la variable relativa a si el alcalde incumbente se presenta o no a la reelección:
 
 ```{r}
-df_presentacion <- haven::read_dta("input/base_consolidada_promedios_2001_2019.dta") %>% 
+df_electoral_participation <- haven::read_dta("input/base_consolidada_promedios_2001_2019.dta") %>% 
   select(municipio, cod_com, candidato, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas) %>% 
   mutate(fecha = case_when(
     periodo_electoral == 1 ~ 2004,
@@ -476,82 +488,145 @@ Unimos las bases de datos utilizando
 
 ```{r}
 
-df_completa_incumbente <- df_completa_incumbente %>% 
+df_municipal_incumbent <- df_municipal_incumbent %>% 
   filter(!comuna %in% c("cabo de hornos","cabo de hornos y antartica", "cabo de hornos(ex-navarino)", "antartica")) %>% 
   mutate(comuna = str_replace_all(comuna, 
                                   c("llay-llay" = "llaillay","treguaco" = "trehuaco", "o'higgins" = "o´higgins",
                                     "marchigue" = "marchihue", "aisen" = "aysen")))
 
-df_electoral_municipal <- df_completa_incumbente %>% 
-  left_join(df_presentacion, by = join_by(comuna == municipio, candidato_pm == candidato, fecha))
+df_incumbent_participation <- df_municipal_incumbent %>% 
+  left_join(df_electoral_participation, by = join_by(comuna == municipio, candidato_pm == candidato, fecha)) %>% 
+  group_by(fecha, comuna) %>% 
+  slice(., 1)
 
-df_electoral_municipal <- df_electoral_municipal %>% 
+df_incumbent_participation <- df_incumbent_participation %>% 
   group_by(comuna) %>% 
   fill(., cod_com, .direction = "downup") %>% 
   mutate(periodo_electoral = seq_along(periodo_electoral))
 
-df_electoral_municipal %>% 
+df_incumbent_participation %>% 
   filter(comuna == "rio claro") %>% 
   select(fecha, comuna, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas)
 
-# df_consolidada <- df_electoral_municipal %>% 
-#   select(comuna, cod_com, candidato_pm, periodo_electoral, fecha, participacion_alcalde_incum, elecciones_no_competitivas, votos_candidato_pm_p)
-# 
-# writexl::write_xlsx(df_consolidada, "output/231112 - Participación.xlsx")
+df_incumbent_participation %>% 
+  filter(comuna == "yungay") %>% 
+  select(fecha, comuna, candidato_pm, candidato_sm, votos_candidato_pm, votos_candidato_sm)
+
+# rio claro: se repite 4 veces 1996
+# san juan de la costa: se repite 4 veces el 2021
+# tortel: se repite 4 veces el 2021
+# vilcun: se repite 4 veces el 2021
+# yungay: se repite 4 veces el 2021
+
+# writexl::write_xlsx(df_incumbent_participation, "output/231112 - Participación.xlsx")
+
 ```
 
 ```{r}
 
-df_participacion <- readxl::read_excel("input/231115 - Participación_rec.xlsx") %>%
+df_electoral_participation <- readxl::read_excel("input/231115 - Participación_rec.xlsx") %>%
   select(comuna, cod_com, fecha, participacion_alcalde_incum, elecciones_no_competitivas) %>% 
   mutate(elecciones_no_competitivas = replace_na(elecciones_no_competitivas, value = 0))
 
-df_participacion %>% 
+df_electoral_participation %>% 
   filter(comuna == "rio claro")
 
-colnames(df_completa_incumbente)
+df_incumbent_participation <- df_incumbent_participation %>% 
+  group_by(fecha, comuna) %>% 
+  slice(., 1) %>% 
+  select(-c(participacion_alcalde_incum, elecciones_no_competitivas, cod_com))
 
-df_completa_incumbente <- df_completa_incumbente %>% left_join(df_participacion)
+colnames(df_incumbent_participation)
 
-df_completa_incumbente <- df_completa_incumbente %>% 
+df_incumbent_participation <- df_incumbent_participation %>% left_join(df_electoral_participation,
+                                                               by = join_by(comuna == comuna, 
+                                                                            fecha == fecha))
+
+df_incumbent_participation <- df_incumbent_participation %>% 
   group_by(comuna) %>% 
   fill(., cod_com, .direction = "downup") %>% 
   mutate(periodo_electoral = seq_along(fecha))
 
-df_completa_incumbente <- df_completa_incumbente %>% 
-  filter(!periodo_electoral %in% c(9, 10, 11))
-
-df_completa_incumbente %>% 
+df_incumbent_participation %>% 
   filter(comuna == "rio claro") %>% 
   select(fecha, comuna, periodo_electoral, participacion_alcalde_incum, elecciones_no_competitivas)
 
+df_incumbent_participation <- df_incumbent_participation %>% 
+  filter(!periodo_electoral %in% c(9, 10, 11))
 ```
 
 Revisión de variables y ubicación:
 
 ```{r}
-colnames(df_completa_incumbente)
+colnames(df_municipal_incumbent)
 ```
 
 # Variables nuevas: 
 
 - Información (primeras 7 columnas) para el incumbente. Tener en consideración la participación, no la reelección.
 
-```{r}
-df_incumbente <- df_completa_incumbente %>% 
-  select(fecha, comuna, candidato_pm, coalicion_pm, reeleccion_alcalde, participacion_alcalde_incum, votos_validos) %>% 
+```{r incumbente}
+df_incumbent <- df_incumbent_participation %>% 
+  select(fecha, comuna, candidato_pm, sexo_pm, sigla_partido_pm, pacto_nombre_pm, pacto_pm, partido_pm, 
+         coalicion_pm, reeleccion_alcalde, participacion_alcalde_incum, votos_candidato_pm,
+         votos_candidato_pm_p) %>% 
   mutate(incumbente = case_when(
     reeleccion_alcalde == 1 & participacion_alcalde_incum == 1 ~ lag(candidato_pm),
     reeleccion_alcalde == 0 & participacion_alcalde_incum == 1 ~ lag(candidato_pm),
     reeleccion_alcalde == 0 & participacion_alcalde_incum == 0 ~ NA_character_
   )) %>% filter(fecha > 2000)
 
-df_completa_alcaldes <- df_completa_alcaldes %>% 
-  mutate(across(where(is.character), 
+df_all_candidates_by_year <- df_all_candidates_by_year %>% 
+    mutate(across(where(is.character), 
                 \(x) stringi::stri_trans_general(str_to_lower(x), "latin-ascii"))) %>% 
-  select(fecha, comuna, candidato, sexo, pacto, sigla_partido, votos_candidato, partido, pacto_nombre, coalicion)
-  
-df_experimento <- left_join(df_incumbente, df_completa_alcaldes, by = join_by(fecha, comuna, incumbente == candidato))
+    filter(!comuna %in% c("cabo de hornos","cabo de hornos y antartica", "cabo de hornos(ex-navarino)", "antartica")) %>% 
+    mutate(comuna = str_replace_all(comuna, 
+                                  c("llay-llay" = "llaillay","treguaco" = "trehuaco", "o'higgins" = "o´higgins",
+                                    "marchigue" = "marchihue", "aisen" = "aysen")))
+
+colnames(df_all_candidates_by_year)
+
+df_all_candidates_by_year <- df_all_candidates_by_year %>% 
+  filter(fecha > 2000) %>% 
+  select(-tipo_eleccion, -cargo, sexo_incumbente = sexo, pacto_incumbente = pacto,
+         sigla_partido_incumbente = sigla_partido, votos_incumbente = votos_candidato, 
+         pacto_nombre_incumbente = pacto_nombre, partido_incumbente = partido,
+         coalicion_incumbente = coalicion, votos_incumbente_p = votos_candidato_p)
+
+#df_gender <- readxl::read_xlsx("input/231030 - Género_rec.xlsx")
+
+df_join <- left_join(df_incumbent, df_all_candidates_by_year, by = join_by("fecha" == "fecha", 
+                                                                                   "incumbente" == "candidato",
+                                                                                   "comuna" == "comuna"))
+
+df_elect_and_incumbent <- df_join %>% 
+  mutate(coalicion_incumbente = if_else(reeleccion_alcalde == 1, coalicion_pm, coalicion_incumbente),
+         sexo_incumbente = if_else(reeleccion_alcalde == 1, sexo_pm, sexo_incumbente),
+         pacto_incumbente = if_else(reeleccion_alcalde == 1, pacto_pm, pacto_incumbente),
+         sigla_partido_incumbente = if_else(reeleccion_alcalde == 1, sigla_partido_pm, sigla_partido_incumbente),
+         pacto_nombre_incumbente = if_else(reeleccion_alcalde == 1, pacto_nombre_pm, pacto_nombre_incumbente),
+         partido_incumbente = if_else(reeleccion_alcalde == 1, partido_pm, partido_incumbente),
+         votos_incumbente = if_else(reeleccion_alcalde == 1, votos_candidato_pm, votos_incumbente),
+         votos_incumbente_p = if_else(reeleccion_alcalde == 1, votos_candidato_pm_p, votos_incumbente_p))
+
+#writexl::write_xlsx(df_elect_and_incumbent, "output/electo e incumbente.xlsx")
+
+df_elect_and_incumbent <- readxl::read_xlsx("input/electo e incumbente.xlsx")
+
+colnames(df_elect_and_incumbent)
+
+df_incumbent_participation <- df_incumbent_participation %>% 
+  left_join(df_elect_and_incumbent)
+
+# col_comunas <- df_elect_and_incumbent %>% 
+#   filter(participacion_alcalde_incum == 1 & reeleccion_alcalde == 0 & is.na(pacto_incumbente)) %>% 
+#   select(comuna) %>% 
+#   distinct() %>% 
+#   pull()
+# 
+# df_all_candidates_by_year %>% 
+#   filter(comuna %in% col_comunas)  %>%
+#   writexl::write_xlsx("output/incumbente datos faltantes.xlsx")
 
 ```
 
@@ -559,9 +634,8 @@ df_experimento <- left_join(df_incumbente, df_completa_alcaldes, by = join_by(fe
 - Arreglar la columna con cantidad de periodos electorales. Parte en cero, luego en 1 siempre.
 
 ```{r}
-df_n_periodos <- df_completa_incumbente %>% 
+df_incumbent_participation <- df_incumbent_participation %>% 
   group_by(comuna) %>% 
-  select(fecha, comuna, candidato_pm, coalicion_pm, reeleccion_alcalde, participacion_alcalde_incum, periodos_consecutivos_alcalde, periodos_consecutivos_coalicion) %>% 
   mutate(periodos_consecutivos_alcalde = case_when(
     fecha == 1992 ~ 0,
     T ~ periodos_consecutivos_alcalde
@@ -582,21 +656,11 @@ df_n_periodos <- df_completa_incumbente %>%
     T ~ periodos_consecutivos_coalicion))
 ```
 
-
-- Número de periodos coalicion y alcalde: df_n_periodos
-- % coalicion incumbente: df_coalicion_p
-
-
-
 - % de la coalicion incumbente
 
 ```{r}
 
-df_coalicion_p <- df_completa_incumbente %>% 
-  select(fecha, comuna, candidato_pm, votos_candidato_pm, coalicion_pm, votos_coalicion, votos_candidato_pm_p, 
-         votos_coalicion, coalicion_municipal_incumbente, votos_validos, otros_n_candidatos:frente_amplio_n_candidatos, 
-         coalicion_concertacion_p, coalicion_alianza_p, coalicion_independientes_p, coalicion_otros_p, 
-         coalicion_frente_amplio_p) %>% 
+df_incumbent_participation <- df_incumbent_participation %>% 
   rowwise() %>% 
   mutate(votos_coalicion_p = votos_coalicion/votos_validos) %>% 
   group_by(comuna) %>% 
@@ -611,32 +675,48 @@ df_coalicion_p <- df_completa_incumbente %>%
     otros_n_candidatos != 1 & coalicion_municipal_incumbente == "otros" ~ votos_candidato_pm_p,
     frente_amplio_n_candidatos == 1 & coalicion_municipal_incumbente == "frente amplio" ~ coalicion_frente_amplio_p,
     frente_amplio_n_candidatos != 1 & coalicion_municipal_incumbente == "frente amplio" ~ votos_candidato_pm_p
-  )) %>% 
-  select(fecha, comuna, candidato_pm, coalicion_pm, coalicion_municipal_incumbente, votos_candidato_pm_p, votos_coalicion_p, 
-         votos_coalicion_incumbente_p,concertacion_n_candidatos, alianza_n_candidatos, otros_n_candidatos,
-         independientes_n_candidatos) 
+  ))
 
 ```
 
+```{r}
+colnames(df_incumbent_participation)
+```
 
+# ENP
+
+```{r}
+df_enp <- read_rds("data/enp.rds") %>% 
+  select(fecha, comuna, enp_candidatos, enp_coalicion, enp_partido, enp_pacto, candidatos_n, coaliciones_n, partidos_n)
+
+colnames(df_enp)
+
+df_incumbent_participation <- df_incumbent_participation %>% 
+  left_join(df_enp, by = join_by(fecha == fecha, comuna == comuna))
+```
+
+74 variables !
 
 ```{r}
 
 library("labelled")
 
-df_final <- df_completa_incumbente %>%
+df_final <- df_incumbent_participation %>%
   select(tipo_eleccion, cargo, comuna, cod_com, fecha, periodo_electoral, 
-         candidato_pm, sexo_pm, pacto_pm, pacto_nombre_pm, partido_pm, sigla_partido_pm, coalicion_pm, votos_candidato_pm,
+         candidato_pm, sexo_pm, pacto_pm, pacto_nombre_pm, partido_pm, coalicion_pm, votos_candidato_pm, # Primera mayoría
          votos_candidato_pm_p,
-         candidato_sm, sexo_sm, pacto_sm, pacto_nombre_sm, partido_sm, sigla_partido_sm, coalicion_sm, votos_candidato_sm,
+         candidato_sm, sexo_sm, pacto_sm, pacto_nombre_sm, partido_sm, coalicion_sm, votos_candidato_sm, # Segunda mayoría
          votos_candidato_sm_p, 
+         incumbente, sexo_incumbente, pacto_incumbente, pacto_nombre_incumbente, partido_incumbente, coalicion_incumbente, # Incumbente
+         votos_incumbente, votos_incumbente_p,
          brecha_victoria, brecha_victoria_p, coalicion_electa_p = porc_coalicion_alcalde_electa,
          coalicion_incumbente_p = porc_coalicion_alcalde_incumbente, 
          reeleccion_coalicion_alcalde, reeleccion_alcalde, periodos_consecutivos_coalicion, periodos_consecutivos_alcalde,
-         coalicion_incumbente = coalicion_municipal_incumbente, participacion_alcalde_incum, elecciones_no_competitivas,
+         participacion_alcalde_incum, elecciones_no_competitivas,
          votos_nulos, votos_en_blanco, votos_comunales, votos_validos, votos_lista, votos_partido, votos_coalicion,
          coalicion_alianza, coalicion_alianza_p, coalicion_concertacion, coalicion_concertacion_p, coalicion_independientes,
-         coalicion_independientes_p, coalicion_otros, coalicion_otros_p, coalicion_frente_amplio, coalicion_frente_amplio_p) %>% 
+         coalicion_independientes_p, coalicion_otros, coalicion_otros_p, coalicion_frente_amplio, coalicion_frente_amplio_p, 
+         everything()) %>% 
   labelled::set_variable_labels(
                 tipo_eleccion = "Tipo de elección", 
                 cargo = "Cargo a elegir", 
