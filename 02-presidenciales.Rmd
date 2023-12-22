@@ -1,0 +1,105 @@
+---
+title: "presidenciales"
+output: html_document
+date: "2023-12-22"
+editor_options: 
+  chunk_output_type: console
+---
+
+Los paquetes que utilizaremos:
+
+```{r warning=F, message=F}
+library(tidyverse)
+library(stringi)
+library(janitor)
+library(lubridate)
+library(sjmisc)
+```
+
+Cargar bases de datos municipales 
+
+```{r}
+df <- read_rds("data/231130 - Elecciones municipales.rds")
+
+frq(df$fecha)
+```
+
+# Alineamiento electoral
+
+```{r}
+frq(df$coalicion_incumbente)
+
+df_alineamiento <- df %>% 
+  mutate(presidente_en_ejercicio = case_when(
+    fecha == 1992 ~ "PATRICIO AYLWIN",
+    fecha == 1996 ~ "EDUARDO FREI RUIZ-TAGLE",
+    fecha == 2000 ~ "RICARDO LAGOS",
+    fecha == 2004 ~ "RICARDO LAGOS",
+    fecha == 2008 ~ "MICHELLE BACHELET",
+    fecha == 2012 ~ "SEBASTIAN PIÑERA",
+    fecha == 2016 ~ "MICHELLE BACHELET",
+    fecha == 2021 ~ "SEBASTIAN PIÑERA"
+  ),
+  presidente_en_ejercicio = str_to_lower(presidente_en_ejercicio), 
+  presidente_coalicion = case_when(
+    fecha == 1992 ~ "concertacion",
+    fecha == 1996 ~ "concertacion",
+    fecha == 2000 ~ "concertacion",
+    fecha == 2004 ~ "concertacion",
+    fecha == 2008 ~ "concertacion",
+    fecha == 2012 ~ "alianza",
+    fecha == 2016 ~ "concertacion",
+    fecha == 2021 ~ "alianza"
+  ),
+  alineamiento_electo = if_else(candidato_pm == presidente_coalicion, 1, 0),
+  alienamiento_incumbente = if_else(coalicion_incumbente == presidente_coalicion, 1, 0))
+
+```
+
+```{r}
+df_pres <- read_rds("data/porcentajes presidenciales.rds")
+```
+
+```{r}
+df_pres <- df_pres %>% 
+    mutate(across(where(is.character), 
+                \(x) stringi::stri_trans_general(str_to_lower(x), "latin-ascii"))) %>% 
+    filter(!comuna %in% c("cabo de hornos","cabo de hornos y antartica", "cabo de hornos(ex-navarino)", "antartica")) %>% 
+    mutate(comuna = str_replace_all(comuna, 
+                                  c("llay-llay" = "llaillay","treguaco" = "trehuaco", "o'higgins" = "o´higgins",
+                                    "marchigue" = "marchihue", "aisen" = "aysen")))
+```
+
+Unir bases de datos:
+
+```{r}
+df_municipal <- df_alineamiento %>% 
+  left_join(df_pres)
+
+df_municipal <- df_municipal %>% 
+  clean_names()
+
+df_municipal <- df_municipal %>% 
+  labelled::set_variable_labels(
+    alineamiento_electo = "Coalición de gobierno en ejercicio se alinea con el alcalde electo",
+    alienamiento_incumbente = "Coalición de gobierno en ejercicio se alinea con el incumbente",
+    presidente_en_ejercicio = "Nombre del presidente en ejercicio",
+    presidente_coalicion = "Coalición del presidente en ejercicio")
+
+```
+
+Guardamos la base de datos:
+
+```{r}
+library(haven)
+
+write_dta(df_municipal, "data/231222 - Elecciones municipales.dta")
+write_rds(df_municipal, "data/231222 - Elecciones municipales.rds")
+write_sav(df_municipal, "data/231222 - Elecciones municipales.sav")
+
+writexl::write_xlsx(df_municipal, "data/231222 - Elecciones municipales.xlsx")
+```
+
+```{r}
+sjPlot::view_df(df_municipal, show.labels = T)
+```

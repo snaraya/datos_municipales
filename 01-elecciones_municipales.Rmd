@@ -893,9 +893,6 @@ write_sav(df_final, "data/231130 - Elecciones municipales.sav")
 writexl::write_xlsx(df_final, "data/231130 - Elecciones municipales.xlsx")
 ```
 
-Falta sexo en algunas comunas
-
-Falta revisión del incumbente en algunas comunas 2021
 
 
 
